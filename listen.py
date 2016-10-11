@@ -1,53 +1,80 @@
-from sys import byteorder
 from array import array
-from struct import pack
-
+import argparse
 import pyaudio
+import sys
 import time
 import wave
 
-THRESHOLD = 5000 #change?
-CHUNK_SIZE = 1024
-FORMAT = pyaudio.paInt16
-RATE = 44100
+def listen(session_length, max_silence, audio):
+    p = pyaudio.PyAudio()
 
-def is_silent(snd_data):
-	return max(snd_data) < THRESHOLD
+    CHUNK_SIZE = 1024
+    FORMAT = pyaudio.paInt16
+    RATE = 44100
+    stream_in = p.open(
+        format=pyaudio.paInt16,
+        channels=1,
+        rate=RATE,
+        input=True,
+        output=True,
+        frames_per_buffer=CHUNK_SIZE
+    )
 
-def record():
-	p = pyaudio.PyAudio()
-	stream_in = p.open(format=FORMAT, channels=1, rate=RATE, input=True, output=True, frames_per_buffer=CHUNK_SIZE)
+    alert_count = 0
+    r = array('h')
+    alert_time = time.time()+max_silence
+    session_end_time = time.time()+session_length
+    while time.time() < session_end_time:
+        snd_data = array('h', stream_in.read(CHUNK_SIZE))
+        if sys.byteorder == 'big':
+            snd_data.byteswap()
+        r.extend(snd_data)
 
-	num_silent = 0
-	snd_started = False
+        threshold = 5000
+        is_silent = max(snd_data) < threshold
+        if is_silent:
+            should_alert = time.time() >= alert_time
+            if should_alert:
+                alert(p, audio, CHUNK_SIZE)
+                alert_count += 1
 
-	r = array('h')
+                stream_in = p.open(
+                    format=FORMAT,
+                    channels=1,
+                    rate=RATE,
+                    input=True,
+                    output=True,
+                    frames_per_buffer=CHUNK_SIZE
+                )
 
-	blow_up_time = time.time()+5
-	while 1:
-		snd_data = array('h', stream_in.read(CHUNK_SIZE))
-		if byteorder == 'big':
-			snd_data.byteswap()
-		r.extend(snd_data)
+                alert_time = time.time()+max_silence
+            #else: print(alert_time-time.time())
+        else:
+            alert_time = time.time()+max_silence
+            #print("Keep talking through your thought process!")
+    return alert_count
 
-		silent = is_silent(snd_data)
-		if silent:
-			if time.time() >= blow_up_time:
-				wf = wave.open('C:/users/brand/Downloads/ahem_x.wav', 'rb')
-				stream_out = p.open(format = p.get_format_from_width(wf.getsampwidth()), channels = wf.getnchannels(), rate = wf.getframerate(), output = True)
-				data = wf.readframes(CHUNK_SIZE)
-				while data:
-					stream_out.write(data)
-					data = wf.readframes(CHUNK_SIZE)
-				stream_out.close()
-				stream_in = p.open(format=FORMAT, channels=1, rate=RATE, input=True, output=True, frames_per_buffer=CHUNK_SIZE)
+def alert(p, audio, CHUNK_SIZE):
+    wf = wave.open(audio, 'rb')
+    stream_out = p.open(
+        format = p.get_format_from_width(wf.getsampwidth()),
+        channels = wf.getnchannels(),
+        rate = wf.getframerate(),
+        output = True
+    )
 
-				blow_up_time = time.time()+5
-			else:
-				print(blow_up_time-time.time())
-		else:
-			blow_up_time = time.time()+5
-			print("Talk through your thought process")
+    data = wf.readframes(CHUNK_SIZE)
+    while data:
+        stream_out.write(data)
+        data = wf.readframes(CHUNK_SIZE)
+    stream_out.close()
 
 if __name__ == '__main__':
-	record()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-l", "--session_length", type=int, default=1800)
+    parser.add_argument("-s", "--max_silence", type=int, default=5)
+    parser.add_argument("-a", "--audio", default='audio_files/ahem_x.wav')
+    args = parser.parse_args()
+    alert_count = listen(args.session_length, args.max_silence, args.audio)
+    print("You were alerted for being too silent {0} time(s) during your {1} second session."
+        .format(alert_count, args.session_length))
