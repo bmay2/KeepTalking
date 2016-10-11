@@ -76,5 +76,5 @@ if __name__ == '__main__':
     parser.add_argument("-a", "--audio", default='audio_files/ahem_x.wav')
     args = parser.parse_args()
     alert_count = listen(args.session_length, args.max_silence, args.audio)
-    print("You were alerted for being too silent {0} time(s) during your {1} second session."
+    print("You were too silent {0} time(s) during your {1} second session."
         .format(alert_count, args.session_length))
